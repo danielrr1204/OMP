@@ -1,0 +1,358 @@
+;-------------MACROS------------------
+LEA:			MACRO  (ra, eti)
+				or     ra, r0,  low(eti)
+				or.u   ra, ra, high(eti)
+				ENDMACRO
+			
+LOAD:    		MACRO  (ra, eti)
+				LEA    (ra, eti)
+				ld   ra, ra, r0
+				ENDMACRO
+			
+PUSH:     		MACRO  (ra)
+				subu   r30, r30, 4
+				st     ra, r30, r0
+				ENDMACRO
+
+POP:      		MACRO  (ra)
+				ld     ra, r30, r0
+				addu   r30, r30, 4
+				ENDMACRO
+
+DBZ:     		MACRO  (ra, eti)
+				sub    ra, ra, 1
+				cmp    r4, ra, r0
+				bb1    eq, r4, eti
+				ENDMACRO
+			  
+DBNZ:     		MACRO  (ra, eti)
+				sub    ra, ra, 1
+				cmp    r5, ra, r0
+				bb0    eq, r5, eti
+				ENDMACRO
+			
+				org 0x00003000
+IMAGEN1: 		data 4, 5 				; filas y columnas
+				;data 0xFF1EA064, 0x6B96F0C8 
+				;data 0xA06403B4, 0xF0C8FF1E
+				;data 0x03B46B96
+				data 0x01010101, 0x01010101 
+				data 0x01010101, 0x01010101
+				data 0x01010101
+				; 100 160 30 255 200 -- 190 101 155
+				; 240 150 107 180 3  -- 180 146 160  
+				; 100 160 30 255 200 -- 190 101 155
+				; 240 150 107 180 3  -- 180 146 160  
+
+IMAGEN2: 		data 4, 5 				; filas y columnas
+				data 0x00000000, 0x00000000, 0x00000000, 0x00000000, 0x00000000
+
+MFILTRO:		data 1					; k
+				data 0, 0, 0 
+				data 0, 2, 0
+				data 0, 0, 0
+
+;-------------------------------------------------
+;----COMPARA (deja valor diferencias en r29)------
+			
+COMPARA:		PUSH(r1)				; Guardamos dir retorno
+				PUSH(r31)				; Guardamos FP llamante
+				or r31, r30, r0			; Creamos FP	
+				ld r2, r31, 8 			; r2 <- dir IMAGEN1
+				ld r3, r31, 12			; r3 <- dir IMAGEN2
+				ld r11, r2, 0			; r11 <- numero filas IMAGEN1
+				add r4, r2, 4			; r4 <- dir numero columnas IMAGEN1
+				ld r12, r4, 0			; r12 <- numero columnas IMAGEN1
+				mulu r5, r11, r12		; r5 <- contador (numElementos)
+				or r29, r0, r0			; r29 <- diferencias
+				add r2, r2, 8			; r2 <- dir elemento matriz1
+				add r3, r3, 8			; r3 <- dir elemento matriz2
+BUCLECMP:		ld.bu r6, r2, 0			; r6 <- elemento matriz1
+				ld.bu r7, r3, 0			; r7 <- elemento matriz2
+				cmp r8, r7, r6			; comparamos los dos elementos en r8
+				bb1 eq, r8, IGUALES		; si son iguales salto a IGUALES
+				addu r29, r29, 1		; si no son iguales incremento diferencias
+IGUALES:		DBZ(r5, FINCMP)		    ; decrementa contador y compara con 0
+				add r2, r2, 1			; r2 <- siguiente elemento matriz1
+				add r3, r3, 1			; r3 <- siguiente elemento matriz2
+				br BUCLECMP				; Salto a BUCLECMP
+FINCMP:			or r30, r31, r31		
+				POP(r31)				
+				POP(r1)					
+				jmp (r1)
+			
+;-------------------------------------------------
+;----FILTRAPIXEL (deja valor pixel en r29)--------
+			
+FILTRAPIXEL:	PUSH(r1)				; Guardamos dir retorno
+				PUSH(r31)				; Guardamos FP llamante
+				or r31, r30, r0			; Creamos FP	
+				ld r19, r31, 8 			; r19 <- dir IMAGEN1
+				ld r25, r31, 12			; r25 <- fila (i)
+				add r25, r25, 1			; suma 1 a fila (fix)
+				ld r4, r31, 16			; r4 <- columna (j)
+				add r4, r4, 1			; suma 1 a columna (fix)
+				ld r26, r31, 20			; r26 <- dir MFILTRO 
+				or r27, r0, 0			; r27 <- Acumulador a 0
+				sub r7, r4, 2			; r7 <- columna -2						
+				sub r8, r25, 2			; r8 <- fila -2							
+				ld r28, r19, 4			; r28 <- numero col IMAGEN1
+				mulu r10, r28, r8		; r10 <- Ncol*(fila-2)
+				mulu r10, r10, 1		; r10 <- 1*(Ncol*(fila-2))
+				mulu r11, r7, 1			; r11 <- 1*(columna -2)	
+				add r12, r10, r11		; r12 <- 1*(columna -2)	+ 1*(Ncol*(fila-2)) 
+				add r13, r12, 8			; r13 <- 8+(1*(columna -2) + 1*(Ncol*(fila-2)))	
+				add r20, r19, r13		; r20 <- dir elemento a tratar IMAGEN1 ---
+				add r21, r26, 4			; r21 <- dir elemento a tratar MFILTRO
+				or r11, r0, r0			; r11 <- contadorFila = 0
+				
+				or r8, r0, r0			; r8 <- contadorColumnaFiltro =0
+BUCFILADS:		or r7, r0, r0			; r7 <- contadorColumna = 0				
+BUCFILA:		add r8, r8, 4			; r8 <- contadorColumnaFiltro+4
+				ld.bu r14, r20, 0		; r14 <- elemento a usar de IMAGEN1
+				ld r15, r21, 0			; r15 <- elemento MFILTRO 
+				add r21, r21, 4			; r21 <- Siguiente dir elemento MFILTRO
+				muls r16, r15, r14		; r16 <- valor IM1 * valor MFILTRO   
+				add r27, r27, r16		; acum=acum+(valor IM1 * valor MFILTRO)
+				cmp r10, r7, 2			; comparamos contadorColumna con 2
+				bb1 eq, r10, SIGFILA	; si contadorColumna=2 salto a SIGFILA
+				add r7, r7, 1			; sumar 1 a contadorColumna 
+				add r20, r20, 1			; siguiente elemento IM1
+				br BUCFILA				;
+
+SIGFILA:		add r11, r11, 1			; contadorFila + 1 
+				cmp r24, r11, 3			; comparamos contadorFila con 3
+				bb1 eq, r24, COMPRF  	; si contadorFila=3 salto a COMPRF
+				sub r13, r28, 2			; r13 <- Ncol IMAGEN1-2 
+				mulu r13, r13, 1		; r13 <- 1*(Ncol IMAGEN1-2)
+				add r20, r20, r13		; Direccion elemento siguiente fila
+				br BUCFILADS			;
+				
+COMPRF:			ld r22, r26, 0			; r22 <- k
+				divs r27, r27, r22		; acumulador = acumulador/k	
+				or r29, r0, r0			; ponemos r29 a 0
+				cmp r23, r27, r0		; comparamos acumulador con 0
+				bb1 lt, r23, ESNEGAT	; si acum < 0 salto a ESNEGAT
+				cmp r23, r27, 255		; comparamos acumulador con 255
+				bb1 gt, r23, ESMAYOR	; si acum > 255 salto a ESMAYOR
+				or r29, r27, 0			; r29 <- Acumulador
+				br FINFILTRAPIX		
+ESNEGAT:		or r29, r0, r0			; r29 <- 0
+				br FINFILTRAPIX			
+ESMAYOR:		or r29, r0, 255			; r29 <- 255
+				br FINFILTRAPIX			
+FINFILTRAPIX:	or r30, r31, r31		
+				POP(r31)				
+				POP(r1)					
+				jmp (r1)
+				
+;-------------------------------------------------
+;----FILTRO (almacena imagenFiltrada)------------
+
+FILTRO:			PUSH(r1)				; Guardamos dir retorno
+				PUSH(r31)				; Guardamos FP llamante
+				or r31, r30, r0			; Creamos FP	
+				ld r2, r31, 8 			; r2 <- dir IMAGEN1
+				or r17, r2, 0			; r17 <- dir IMAGEN1
+				ld r3, r31, 12 			; r3 <- dir IMAGEN2
+				ld r14, r31, 16 		; r14 <- dir MFILTRO 
+				ld r5, r2, 0			; r5 <- Nfilas IMAGEN1
+				ld r6, r2, 4			; r6 <- NColumnas IMAGEN1
+				st r5, r3, 0			; copia de Nfilas a imagenFiltrada
+				st r6, r3, 4			; copia de NColumnas a imagenFiltrada
+				or r7, r0, r0			; r7 <- contador a 0
+				or r7, r6, 0			; contador = NColumnas IMAGEN1
+				add r2, r2, 8			; r2 <- dir primer elemento IMAGEN1
+				add r3, r3, 8			; r3 <- dir primer elemento IMAGEN2
+				or r9, r0, 1			; r9 <- contadorFila a 1	
+				or r18, r0, 2			; r18 <- contadorFilaParafiltrap a 2	
+BUCLECOPIAFILA:	ld.bu r8, r2, 0			; r8 <- elemento IMAGEN1
+				st.b r8, r3, 0			; copia elemento IMAGEN1 a IMAGEN2	
+				add r2, r2, 1			; r2 <- dir siguiente elemento IMAGEN1
+				add r3, r3, 1			; r3 <- dir siguiente elemento IMAGEN2
+				DBZ(r7, FILTROCONT)	    ; decrementa contador y compara con 0
+				br BUCLECOPIAFILA			
+				
+FILTROCONT:		or r7, r0, 2			; contadorColumna = 2
+				ld.bu r8, r2, 0			; r8 <- elemento IMAGEN1
+				st.b r8, r3, 0			; copia elemento IMAGEN1 a IMAGEN2	
+				add r2, r2, 1			; r2 <- dir siguiente elemento IMAGEN1
+				add r3, r3, 1			; r3 <- dir siguiente elemento IMAGEN2
+BUCLEFIL2:		sub r7, r7, 1			; restamos 1 a Columna para pasar a FILTRAPIXEL (fix)
+				sub r18, r18, 1			; restamos 1 a Fila para pasar a FILTRAPIXEL (fix)
+				PUSH(r14) 				; Guardamos MFILTRO
+				PUSH(r7) 				; Guardamos Columna
+				PUSH(r18) 				; Guardamos Fila
+				PUSH(r17) 				; Guardamos IMAGEN1
+				bsr FILTRAPIXEL 		
+				POP(r17) 				; Sacamos IMAGEN1
+				POP(r18)				; Sacamos Fila
+				POP(r7) 				; Sacamos Columna
+				POP(r14)				; Sacamos MFILTRO
+				add r7, r7, 1			; sumamos 1 a Columna para programa (fix)
+				add r18, r18, 1			; sumamos 1 a Fila para programa (fix)
+				st.b r29, r3, 0 		; resultado filtrapixel -> IMAGEN2
+				sub r12, r5, 1			; r12 <- NFilas -1
+				sub r13, r6, 1			; r13 <- NColumnas-1
+				add r2, r2, 1			; r2 <- dir siguiente elemento IMAGEN1
+				add r3, r3, 1			; r3 <- dir siguiente elemento IMAGEN2
+				cmp r10, r7, r13		; compara columna con NColumnas-1
+				add r7, r7, 1			; siguiente columna
+				bb0 eq, r10, BUCLEFIL2	; si contadorColumna =! NColumnas-1 salto a BUCLEFIL2
+				ld.bu r8, r2, 0			; r8 <- elemento IMAGEN1
+				st.b r8, r3, 0			; copia elemento IMAGEN1 a IMAGEN2	
+				add r9, r9, 1			; siguiente fila
+				add r18, r18, 1			; siguiente FilaParafiltrap
+				cmp r11, r9, r12		; compara fila con NFilas-1
+				add r2, r2, 1			; r2 <- dir siguiente elemento IMAGEN1
+				add r3, r3, 1			; r3 <- dir siguiente elemento IMAGEN2
+				bb0 eq, r11, FILTROCONT	; si contadorFila =! NFilas-1 salto a FILTROCONT
+				or r7, r6, 0			; contadorColumna = NColumnas
+BUCLECPFILA2:	ld.bu r8, r2, 0			; r8 <- elemento IMAGEN1
+				st.b r8, r3, 0			; copia elemento IMAGEN1 a IMAGEN2	
+				add r2, r2, 1			; r2 <- dir siguiente elemento IMAGEN1
+				add r3, r3, 1			; r3 <- dir siguiente elemento IMAGEN2
+				DBNZ(r7, BUCLECPFILA2)	; decrementa contador y compara con 0
+				or r30, r31, r31		
+				POP(r31)				
+				POP(r1)					
+				jmp (r1)
+				
+;-------------------------------------------------
+;----FILTROREC (deja valor NPasadas en r29)-------
+
+FILTROREC:		PUSH(r1)				; Guardamos dir retorno
+				PUSH(r31)				; Guardamos FP llamante
+				or r31, r30, r0			; Creamos FP	
+				ld r2, r31, 8 			; r2 <- dir IMAGEN1
+				ld r3, r31, 12 			; r3 <- dir MFILTRO
+				ld r4, r31, 16 			; r4 <- NCambios
+				ld r5, r31, 20 			; r5 <- NPasadas
+				ld r6, r2, 0			; r6 <- Nfilas IMAGEN1
+				ld r7, r2, 4			; r7 <- NColumnas IMAGEN1
+				mulu r8, r6, r7			; r8 <- Nfilas * NColumnas
+				divu r8, r8, 4			; r8 <- (Nfilas * NColumnas)/4
+				mulu r8, r8, 4			; 
+				addu r8, r8, 4			; por exceso
+				add r8, r8, 8			; r8 <- Tamaño ImagenFiltrada
+				subu r30, r30, r8		; Reserva pila
+				or r9, r30, 0			; r9 <- dir ImagenFiltrada
+	;-- 2 --
+				PUSH(r5)
+				PUSH(r4)
+				PUSH(r8)				; Guardamos  Tamaño ImagenFiltrada en pila	
+				PUSH(r3)				; Guardamos dir MFILTRO en pila	
+				PUSH(r9)				; Guardamos dir ImagenFiltrada en pila	
+				PUSH(r2)				; Guardamos dir IMAGEN1 en pila
+				bsr FILTRO
+				POP(r2)					; Sacamos dir IMAGEN1 de pila	
+				POP(r9)					; Sacamos dir ImagenFiltrada de pila	
+				POP(r3)					; Sacamos dir MFILTRO de pila
+				POP(r8)					; Sacamos Tamaño ImagenFiltrada de pila	
+				POP(r4)
+				POP(r5)					; hasta aqui ok
+				
+	;-- 3 --
+				addu r5, r5, 1 			; NPasadas = NPasadas+1
+				cmp r10, r5, 20 		; r10 <- Compara NPasadas con 20
+				bb1 ge, r10, FILTRORECS ; Si mayor o igual a 20 salto a FILTRORECS
+	;-- 4 --
+				PUSH(r3)
+				PUSH(r5) 
+				PUSH(r4)
+				PUSH(r8)				; Guardamos Tamaño ImagenFiltrada en pila	
+				PUSH(r9)				; Guardamos dir ImagenFiltrada en pila	
+				PUSH(r2) 				; Guardamos dir IMAGEN1 en pila
+				bsr COMPARA
+				POP(r2) 				; Sacamos dir IMAGEN1 de pila
+				POP(r9) 				; Sacamos dir ImagenFiltrada de pila
+				POP(r8)					; Sacamos Tamaño ImagenFiltrada de pila	
+				POP(r4)
+				POP(r5)
+				POP(r3)
+				cmp r10, r29, r4 		; r10 <- Compara NCambios
+				bb1 lo, r10, FILTRORECS ; Si es menor que NCambios salto a FILTRORECS
+	;-- 5 --
+				PUSH(r2) 
+				PUSH(r8)				; Guardamos  Tamaño ImagenFiltrada en pila	
+				PUSH(r5) 				; Guardamos NPasadas en pila	
+				PUSH(r4) 				; Guardamos NCambios en pila	
+				PUSH(r3) 				; Guardamos MFiltro en pila	
+				PUSH(r9)				; Guardamos ImagenFiltrada en pila	
+				bsr FILTROREC
+				POP(r9) 				; Sacamos dir ImagenFiltrada de pila
+				POP(r3) 				; Sacamos dir MFiltro de pila
+				POP(r4) 				; Sacamos NCambios de pila
+				POP(r5) 				; Sacamos NPasadas de pila
+				POP(r8)					; Sacamos Tamaño ImagenFiltrada de pila	
+				POP(r2)
+				
+	;-- 6 --
+								
+FILTRORECS:		add r2, r2, 8			; r2 <- dir IMAGEN1
+				add r9, r9, 8			; r9 <- dir ImagenFiltrada
+				or r27, r8, 0			; r27 <- Tamaño IMAGEN con 2 primeras palabras
+				sub r27, r27, 8			; r27 <- Tamaño IMAGEN sin 2 primeros palabras
+BUCLEFILTROREC:	ld.bu r11, r9, 0		; r11 <- elemento ImagenFiltrada
+				st.b r11, r2, 0			; Copia elemento de ImagenFiltrada a IMAGEN1
+				add r2, r2, 1			; r2 <- Siguiente elemento IMAGEN1
+				add r9, r9, 1			; r9 <- Siguiente elemento ImagenFiltrada
+				DBZ(r27, FINFILTROREC)	; decrementa contador, si es 0 salta a FINFILTROREC
+				br BUCLEFILTROREC	
+				
+FINFILTROREC:	st r5, r31, 20			; Guarda valor NPasadas
+				add r29, r5, 0			; r29 <- NPasadas
+				or r30, r31, r0
+				POP(r31)
+				POP(r1)
+				jmp (r1)
+				
+				
+;-----------------------------------------------
+
+org 0
+PRUEBACOMPARA:	LEA(r30, 0x0000F000)	; SP <- F000
+				LEA(r28,IMAGEN1)		; r28 <- dir IMAGEN1
+				LEA(r27,IMAGEN2)		; r27 <- dir IMAGEN2
+				;PUSH(r1)				; Guardamos dir retorno
+				PUSH(r27)				; Guardamos dir IMAGEN2 en pila
+				PUSH(r28)				; Guardamos dir IMAGEN1 en pila
+				bsr COMPARA				; Llamamos a COMPARA
+				stop	
+	
+PRUEBAFILTRAP:	LEA(r30, 0x0000F000)	; SP <- F000
+				LEA(r28,IMAGEN1)		; r28 <- dir IMAGEN1
+				;PUSH(r1)				; Guardamos dir retorno
+				LEA(r27, MFILTRO)		; r27 <- dir MFILTRO
+				PUSH(r27)				; Guardamos dir MFILTRO en pila
+				or r26, r0, 3			; r26 <- 3 (columna j)
+				PUSH(r26)				; Guardamos j en la pila (valor)
+				or r25, r0, 2			; r25 <- 2 (fila i)
+				PUSH(r25)				; Guardamos i en la pila (valor)
+				PUSH(r28)				; Guardamos dir IMAGEN1 en pila
+				bsr FILTRAPIXEL			; Llamamos a FILTRAPIXEL
+				stop
+				
+PRUEBAFILTRO:	LEA(r30, 0x0000F000)	; SP <- F000
+				LEA(r28, MFILTRO)		; r28 <- dir MFILTRO
+				PUSH(r28)				; Guardamos dir MFILTRO en pila
+				LEA(r28, IMAGEN2)		; r28 <- dir IMAGEN2
+				LEA(r26,IMAGEN1)		; r26 <- dir IMAGEN1
+				;PUSH(r1)				; Guardamos dir retorno
+				PUSH(r28)				; Guardamos dir IMAGEN2 en pila
+				PUSH(r26)				; Guardamos dir IMAGEN1 en pila
+				bsr FILTRO				; Llamamos a FILTRO
+				stop
+				
+PRUEBAFILTROR:	LEA(r30, 0x0000F000)	; SP <- F000
+				or r25, r0, 0			; r25 <- 0 (NPasadas)
+				or r26, r0, 0			; r26 <- 0 (NCambios)
+				LEA(r27, MFILTRO)		; r27 <- dir MFILTRO
+				LEA(r28, IMAGEN1)		; r28 <- dir IMAGEN1
+				;PUSH(r1)				; Guardamos dir retorno
+				PUSH(r25)				; Guardamos NPasadas en pila
+				PUSH(r26)				; Guardamos NCambios en pila
+				PUSH(r27)				; Guardamos dir MFILTRO en pila
+				PUSH(r28)				; Guardamos dir IMAGEN1 en pila
+				bsr FILTROREC			; Llamamos a FILTRAPIXEL
+				stop
